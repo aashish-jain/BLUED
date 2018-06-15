@@ -1,0 +1,19 @@
+{
+    "_readMe": "Review list of sync operations, then use Ftp-sync: Commit command to accept changes",
+    "_warning": "This file should not be saved, reopened review file won't work!",
+    "filesToUpdate": [
+        "BLUED-TK/Debug.ipynb"    ],
+    "filesToAdd": [],
+    "dirsToAdd": [],
+    "filesToRemove": [
+        "BLUED-TK/.ipynb_checkpoints/Debug-checkpoint.ipynb",
+        "BLUED-TK/.ipynb_checkpoints/ipeaks_extraction-checkpoint.ipynb",
+        "BLUED-TK/.ipynb_checkpoints/new_eventslist-checkpoint.ipynb",
+        "BLUED-TK/.ipynb_checkpoints/start_end_create-checkpoint.ipynb",
+        "a.out",
+        "try.c"
+    ],
+    "dirsToRemove": [
+        "BLUED-TK/.ipynb_checkpoints"
+    ]
+}

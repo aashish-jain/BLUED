@@ -1,40 +1,64 @@
 #include <iostream>
 #include <stdlib.h>
 #include <fstream>
+
 #include <dirent.h>
+
 #include <string.h>
 #include <map>
 #include <iterator>
+#include <list>
 
 #include <unistd.h>
 #include "mpi.h"
 
-
 #define MASTER_PROCESS 0
-#define START_END_FILENAME "start_end.csv"
-#define DATA_FOLDERS 16
+#define DATA_FOLDERS 13
+#define STOP_AT 5054
 #define DATA_FOLDERS_PATH_FORMAT "../location_001_dataset_%03d/"
 
 using namespace std;
 
-int check_for_start_end_file(int rank, int size)
+
+struct file_timestamps{
+    public:
+        float start,end;
+    file_timestamps(){
+        start=end=0;
+    }
+    file_timestamps(int s, int e)
+    {
+        start=s;
+    }
+};
+
+struct event
 {
-    //check for existing start_end_times else create a new file
-    int create_start_end;
-    //check if the start end file exists
-    fstream start_end_file(START_END_FILENAME, ios_base::in);
-    create_start_end = !start_end_file;
-    if (create_start_end)
-        cout << "\tCreating start end files " << endl;
-    return create_start_end;
-    
-}
+  public:
+    int device;
+    char phase;
+    float time_stamp;
+    int file_num;
+
+    event()
+    {
+        file_num = -1;
+    }
+    void print()
+    {
+        if(file_num!=-1)
+            cout << device << ' ' << phase << ' ' << time_stamp << ' ' << file_num << endl;
+    }
+};
+
+
 
 float get_start_time(fstream &f)
 {
-    f.seekg(0,ios_base::beg);
+    f.seekg(0, ios_base::beg);
     string line = "";
-    for (int count=0 ;getline(f, line) && count<24 ; count++);
+    for (int count = 0; getline(f, line) && count < 24; count++)
+        ;
     return atof(line.c_str());
     //do something with the line
 }
@@ -56,85 +80,82 @@ char *get_path(int num)
     return arr;
 }
 
-int get_file_num(char *filename){
-    return atoi(filename+20);
+int get_file_num(char *filename)
+{
+    return atoi(filename + 20);
 }
 
-char *get_full_path(char *dir, char *file){
-    string path=string(dir)+string(file);
+char *get_full_path(char *dir, char *file)
+{
+    string path = string(dir) + string(file);
     // cout<<type()
-    char *p =new char[path.size() + 1];
-    strcpy(p,path.c_str());
+    char *p = new char[path.size() + 1];
+    strcpy(p, path.c_str());
     p[path.size()] = '\0';
     return p;
 }
 
-int *get_folders_to_process(int rank, int size, int &folder_num)
+
+list<event> events_list_parser()
 {
-    //To print the allocated folders propely a small dealy as a function of rank
-    // usleep(1000 * rank);
-    // cout << rank << " - ";
-
-    folder_num = DATA_FOLDERS / size;
-    int max_folder_num;
-    int *folders_to_process = new int[folder_num];
-
-    int i;
-    for (i = 1; i <= folder_num; i++)
-        folders_to_process[i - 1] = rank * folder_num + i;
-
-    //If the number of folders aren't a multiple of number of processes, assign the remaining to other processes
-    if (DATA_FOLDERS % size && rank < DATA_FOLDERS % size)
-        {
-            folders_to_process[i - 1] = rank + 1 + (DATA_FOLDERS / size) * size;
-            i++;
-        }
-
-    folder_num = i - 1;
-    // for (i = 0; i < folder_num; i++)
-    //     cout << folders_to_process[i] << ' ';
-    // cout << endl;
-
-    return folders_to_process;
+    list<event> l;
+    fstream f("events_list.csv", ios_base::in);
+    if (!f)
+    {
+        cout << "Unable to read file\n";
+        return l;
+    }
+    string line;
+    getline(f, line);
+    event event_obj;
+    while (getline(f, line))
+    {
+        char buff[15];
+        //Index (DUMMY)
+        int i = 0, j = 0;
+        for (j = 0; i < line.size() && line[i] != ','; i++, j++)
+            buff[j] = line[i];
+        buff[j] = '\0';
+        i++;
+        //device
+        for (j = 0; i < line.size() && line[i] != ','; i++, j++)
+            buff[j] = line[i];
+        buff[j] = '\0';
+        i++;
+        event_obj.device = atoi(buff);
+        //Timestamp
+        for (j = 0; i < line.size() && line[i] != ','; i++, j++)
+            buff[j] = line[i];
+        buff[j] = '\0';
+        i++;
+        event_obj.time_stamp = atof(buff);
+        //phase
+        for (j = 0; i < line.size() && line[i] != ','; i++, j++)
+            buff[j] = line[i];
+        buff[j] = '\0';
+        i++;
+        event_obj.phase = buff[j - 1];
+        l.push_back(event_obj);
+    }
+    f.close();
+    return l;
 }
 
+void showlist(list<event> g)
+{
+    list<event>::iterator it;
+    for (it = g.begin(); it != g.end(); ++it)
+        it->print();
+}
 
-/* def find_se_time():
-    se_time=pd.DataFrame(columns=['start','end'])
-    for i in range(len(data_sets)):
-        try:
-    #         print(data_list[i])
-            with open (data_list[i],'rb') as f:
-                #skipping the first 24 lines (headers)
-                for x in range(24):
-                    f.readline()
-                #saving the position and reading the first line
-                pos,a = f.tell(),float(f.readline().decode("utf-8").split(',')[0])
-                #Readoing the last line of the file
-                c = f.readline().decode("utf-8")
-                f.seek(-80,2)
-                b=''
-                while True:
-                    c=f.readline()
-                    if len(c)==0:
-                        break
-                    b=c
-                x=b.decode("utf-8")
-                b=float(x.split(',')[0])
-
-                se_time.loc[data_sets[i]]=[a,b]
-        except Exception as e:
-            print(e)
-            print(data_list[i])
-    return se_time
-*/
-
-int is_data_file(char *file_name){
+int is_data_file(char *file_name)
+{
     return string(file_name).find("ivdata") != string::npos;
 }
 
-void create_start_end_log(int *folders_to_process, int folder_num, map<int,float> &start, map<int,float> &end)
+map <int,file_timestamps> create_start_end_log(int *folders_to_process, int folder_num)
 {
+    map <int,file_timestamps> fse;
     for (int i = 0; i < folder_num; i++)
     {
         char *directory = get_path(folders_to_process[i]);
@@ -149,16 +170,17 @@ void create_start_end_log(int *folders_to_process, int folder_num, map<int,float
                 file_name = ent->d_name;
                 //If not a valid datafile
                 int file_num = get_file_num(file_name);
-                if(!is_data_file(file_name))
+                if (!is_data_file(file_name) || file_num > STOP_AT)
                     continue;
-                file_name = get_full_path(directory,file_name);
-                fstream f(file_name,ios_base::in);
-                if(!f){
-                    cout<<file_name<<" - Error"<<endl;
+                file_name = get_full_path(directory, file_name);
+                fstream f(file_name, ios_base::in);
+                if (!f)
+                {
+                    cout << file_name << " - Error" << endl;
                     continue;
                 }
-                start.insert(pair <int, float> (file_num, get_start_time(f)));
-                end.insert(pair <int, float> (file_num, get_end_time(f)));
+                file_timestamps temp_fse(get_start_time(f),get_end_time(f));
+                fse.insert(pair<int, file_timestamps>(file_num, temp_fse ));
                 // printf("%s %f %f\n", file_name, start[file_num], end[file_num]);
             }
             closedir(dir);
@@ -166,11 +188,34 @@ void create_start_end_log(int *folders_to_process, int folder_num, map<int,float
         else
             perror("");
     }
+    return fse;
+}
+
+
+void update_event_files(list<event> &eve, map<int, file_timestamps> fse)
+{
+    list<event>::iterator event_itr = eve.begin();
+    map<int, file_timestamps>::iterator fse_itr = fse.begin();
+    while (event_itr != eve.end() && fse_itr != fse.end())
+    {
+        file_timestamps &temp_fse = fse_itr->second;
+        cout << temp_fse.start << ' ' << event_itr->time_stamp << ' ' << temp_fse.end << ' ';
+        if ( temp_fse.start < event_itr->time_stamp && event_itr->time_stamp < temp_fse.end)
+        {
+            event_itr->file_num =  fse_itr->first;
+            cout << "!";
+            ++event_itr;
+        }
+        else
+            ++fse_itr;
+        cout << endl;
+    }
 }
 
 int main(int argc, char **argv)
 {
     int rank, size;
+    list<event> event_list;
 
     //start MPI
     MPI_Init(&argc, &argv);
@@ -180,44 +225,45 @@ int main(int argc, char **argv)
     MPI_Comm_size(MPI_COMM_WORLD, &size);
 
     //if no arguments then return
-    if (argc != 2)
+    if (argc != 3)
     {
         if (rank == MASTER_PROCESS)
-            cout << "Cannot extract events from the dataset if no event-length is specified. Quitting";
+            cout << "Cannot extract events from the dataset if no event-length is specified. Quitting\n";
         //End process
         MPI_Finalize();
         return 1;
     }
 
     //parse event length from the cmdline argument
-    float event_length = atof(argv[1]);
-    int create_start_end;
+    float before_event_length = atof(argv[1]), after_event_length = atof(argv[2]);
     if (rank == MASTER_PROCESS)
     {
-        cout << "Each event extracted will be of lenght " << event_length << " seconds\n";
-        create_start_end = check_for_start_end_file(rank, size);
-    }
+        cout << "Each event extracted will be of lenght " << after_event_length+before_event_length << " seconds\n";
 
-    MPI_Bcast(&create_start_end, 1, MPI_INT, MASTER_PROCESS, MPI_COMM_WORLD);
-
-    map <int,float> start,end;
-    if (create_start_end)
-    {
+        map<int, file_timestamps> file_start_end;
         //datafolders to process
-        int folder_num, *folders_to_process;
-        folders_to_process = get_folders_to_process(rank, size, folder_num);
-        create_start_end_log(folders_to_process, folder_num, start, end);
+        int folder_num=DATA_FOLDERS, *folders_to_process = new int[DATA_FOLDERS];
+        for(int i=0;i<DATA_FOLDERS;i++)
+            folders_to_process[i]=i;
+
+        //Get the starting and ending times
+        file_start_end = create_start_end_log(folders_to_process, folder_num);
+        
+        event_list = events_list_parser();
+
+        update_event_files(event_list, file_start_end);
+        // showlist(event_list);
     }
 
-    // usleep(10000*rank);
-    map <int, float> :: iterator itr;
-    for (itr = start.begin(); itr != start.end(); ++itr)
-        printf("%04d %6.5f %6.5f\n",itr->first, start[itr->first], end[itr->first]);
-    cout << endl;
+    
     //Wait for all the tasks to complete
     MPI_Barrier(MPI_COMM_WORLD);
-    if(rank==MASTER_PROCESS)
-        cout<<"Done"<<endl;
+    
+    // extract_events();
+    
+    if (rank == MASTER_PROCESS)
+        cout << "Done" << endl;
+
     //End process
     MPI_Finalize();
     return 1;
