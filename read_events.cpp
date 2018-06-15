@@ -13,22 +13,31 @@
 #include "mpi.h"
 
 #define MASTER_PROCESS 0
-#define DATA_FOLDERS 13
+#define START_FOLDER_NUM 1
+#define END_FOLDER_NUM 13 
 #define STOP_AT 5054
 #define DATA_FOLDERS_PATH_FORMAT "../location_001_dataset_%03d/"
 
 using namespace std;
 
-
-struct file_timestamps{
-    public:
-        float start,end;
-    file_timestamps(){
-        start=end=0;
-    }
-    file_timestamps(int s, int e)
+struct file_timestamps
+{
+  public:
+    float start, end;
+    file_timestamps()
     {
-        start=s;
+        start = end = 0;
+    }
+
+    file_timestamps(float s, float e)
+    {
+        start = s;
+        end = e;
+    }
+
+    void print()
+    {
+        cout << start << ' ' << end << endl;
     }
 };
 
@@ -46,12 +55,23 @@ struct event
     }
     void print()
     {
-        if(file_num!=-1)
+        if (file_num != -1)
             cout << device << ' ' << phase << ' ' << time_stamp << ' ' << file_num << endl;
     }
 };
 
+void print(list<event> l)
+{
+    list<event>::iterator itr;
+    for (itr = l.begin(); itr != l.end(); ++itr)
+        itr->print();
+}
 
+void print(map<int, file_timestamps> file_start_end)
+{
+    for (map<int, file_timestamps>::iterator itr = file_start_end.begin(); itr != file_start_end.end(); ++itr)
+        itr->second.print();
+}
 
 float get_start_time(fstream &f)
 {
@@ -94,7 +114,6 @@ char *get_full_path(char *dir, char *file)
     p[path.size()] = '\0';
     return p;
 }
-
 
 list<event> events_list_parser()
 {
@@ -141,25 +160,17 @@ list<event> events_list_parser()
     return l;
 }
 
-void showlist(list<event> g)
-{
-    list<event>::iterator it;
-    for (it = g.begin(); it != g.end(); ++it)
-        it->print();
-}
-
 int is_data_file(char *file_name)
 {
     return string(file_name).find("ivdata") != string::npos;
 }
 
-map <int,file_timestamps> create_start_end_log(int *folders_to_process, int folder_num)
+map<int, file_timestamps> create_start_end_log()
 {
-    map <int,file_timestamps> fse;
-    for (int i = 0; i < folder_num; i++)
+    map<int, file_timestamps> fse;
+    for (int i = START_FOLDER_NUM; i <= END_FOLDER_NUM; i++)
     {
-        char *directory = get_path(folders_to_process[i]);
-        // cout<<directory<<endl;
+        char *directory = get_path(i);
         DIR *dir;
         struct dirent *ent;
         char *file_name;
@@ -179,18 +190,18 @@ map <int,file_timestamps> create_start_end_log(int *folders_to_process, int fold
                     cout << file_name << " - Error" << endl;
                     continue;
                 }
-                file_timestamps temp_fse(get_start_time(f),get_end_time(f));
-                fse.insert(pair<int, file_timestamps>(file_num, temp_fse ));
-                // printf("%s %f %f\n", file_name, start[file_num], end[file_num]);
+                float t_start=get_start_time(f), t_end=get_end_time(f);
+                file_timestamps temp_fse(t_start, t_end);
+                fse.insert(pair<int, file_timestamps>(file_num, temp_fse));
             }
             closedir(dir);
         }
         else
             perror("");
     }
+    // print(fse);
     return fse;
 }
-
 
 void update_event_files(list<event> &eve, map<int, file_timestamps> fse)
 {
@@ -199,16 +210,16 @@ void update_event_files(list<event> &eve, map<int, file_timestamps> fse)
     while (event_itr != eve.end() && fse_itr != fse.end())
     {
         file_timestamps &temp_fse = fse_itr->second;
-        cout << temp_fse.start << ' ' << event_itr->time_stamp << ' ' << temp_fse.end << ' ';
-        if ( temp_fse.start < event_itr->time_stamp && event_itr->time_stamp < temp_fse.end)
+        // cout << temp_fse.start << ' ' << event_itr->time_stamp << ' ' << temp_fse.end << ' ';
+        if (temp_fse.start < event_itr->time_stamp && event_itr->time_stamp < temp_fse.end)
         {
-            event_itr->file_num =  fse_itr->first;
-            cout << "!";
+            event_itr->file_num = fse_itr->first;
+            // cout << "!";
             ++event_itr;
         }
         else
             ++fse_itr;
-        cout << endl;
+        // cout << endl;
     }
 }
 
@@ -238,29 +249,23 @@ int main(int argc, char **argv)
     float before_event_length = atof(argv[1]), after_event_length = atof(argv[2]);
     if (rank == MASTER_PROCESS)
     {
-        cout << "Each event extracted will be of lenght " << after_event_length+before_event_length << " seconds\n";
-
-        map<int, file_timestamps> file_start_end;
-        //datafolders to process
-        int folder_num=DATA_FOLDERS, *folders_to_process = new int[DATA_FOLDERS];
-        for(int i=0;i<DATA_FOLDERS;i++)
-            folders_to_process[i]=i;
+        cout << "Each event extracted will be of lenght " << after_event_length + before_event_length << " seconds\n";
 
         //Get the starting and ending times
-        file_start_end = create_start_end_log(folders_to_process, folder_num);
-        
+        map<int, file_timestamps> file_start_end = create_start_end_log();
+
+
         event_list = events_list_parser();
 
         update_event_files(event_list, file_start_end);
-        // showlist(event_list);
+        print(event_list);
     }
 
-    
     //Wait for all the tasks to complete
     MPI_Barrier(MPI_COMM_WORLD);
-    
+
     // extract_events();
-    
+
     if (rank == MASTER_PROCESS)
         cout << "Done" << endl;
 
