@@ -1,77 +1,66 @@
 #include <iostream>
 #include <string>
+#include <string.h>
 #include <fstream>
 #include <stdlib.h>
 #include <ctype.h>
 
+#include<mpi.h>
+
 #include <list>
 #include <time.h>
+#define MASTER_PROCESS 0
+#define NUME 10
 using namespace std;
 
-struct event{
-    public:
-    int device;
-    int phase;
-    float time_stamp;
 
-    void print(){
-        cout<<device<< ' '<<phase<<' '<<time_stamp<<endl;
+
+int main(int argc, char **argv) {
+    int size, rank;
+
+    MPI_Init(&argc, &argv);
+    MPI_Comm_size(MPI_COMM_WORLD, &size);
+    MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+
+    int *globaldata=NULL;
+    int *localdata;
+    int nume;
+
+    if (rank == 0) {
+        globaldata = new int[size*NUME];
+        for (int i=0; i<size*NUME; i++)
+            globaldata[i] = 2*i+1;
+
+        printf("Processor %d has data: **", rank);
+        for (int i=0; i<size*NUME; i++)
+            printf("%d ", globaldata[i]);
+        printf("\n");
+        nume=NUME;
     }
-};
 
-list<event> events_list_parser(){
-    list<event> l;
-    fstream f("events_list.csv", ios_base::in);
-    if(!f){
-        cout<<"Unable to read file\n";
-        return l;
-    }
-    string line;
-    getline(f,line);
-    event event_obj;
-    for (int count=0;getline(f,line) && count<10;count++){
-        char buff[15];
-        //Index (DUMMY)
-        int i=0,j=0;
-        for(j=0;i<line.size() && line[i]!=',';i++,j++)
-            buff[j]=line[i];
-        buff[j]='\0';
-        i++;
-        //device
-        for(j=0;i<line.size() && line[i]!=',';i++,j++)
-            buff[j]=line[i];
-        buff[j]='\0';
-        i++;
-        event_obj.device = atoi(buff);
-        //Timestamp
-        for(j=0;i<line.size() && line[i]!=',';i++,j++)
-            buff[j]=line[i];
-        buff[j]='\0';
-        i++;
-        event_obj.time_stamp = atof(buff);
-        //phase
-        for(j=0;i<line.size() && line[i]!=',';i++,j++)
-            buff[j]=line[i];
-        buff[j]='\0';
-        i++;
-        event_obj.phase = buff[j-1];
-        l.push_back(event_obj);
-    }
-    f.close();
-    return l;
-}
+    MPI_Bcast(&nume,1,MPI_INT,MASTER_PROCESS, MPI_COMM_WORLD);
+    printf("Processor %d has nume %d\n", rank, nume);
+    MPI_Scatter(globaldata, nume, MPI_INT, localdata, nume, MPI_INT, 0, MPI_COMM_WORLD);
 
+    printf("Processor %d has data ", rank);
+    for(int i=0;i<nume;i++) 
+        cout<<localdata[i]<<' ';
+    cout<<endl;
+    // localdata *= 3;
+    // printf("Processor %d doubling the data, now has %d\n", rank, localdata);
 
-void showlist(list <event> g)
-{
-    list <event> :: iterator it;
-    for(it = g.begin(); it != g.end(); ++it)
-        it->print();
-}
-int main(int argc, char **argv)
-{
-    list <event> l=events_list_parser();
-    showlist(l);
+    // MPI_Gather(&localdata, 1, MPI_INT, globaldata, 1, MPI_INT, 0, MPI_COMM_WORLD);
+
+    // if (rank == 0) {
+    //     printf("Processor %d has data: ", rank);
+    //     for (int i=0; i<size; i++)
+    //         printf("%d ", globaldata[i]);
+    //     printf("\n");
+    // }
+
+    if (rank == 0)
+        free(globaldata);
+
+    MPI_Finalize();
     return 0;
 }
-

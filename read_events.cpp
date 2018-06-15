@@ -8,16 +8,17 @@
 #include <map>
 #include <iterator>
 #include <list>
+#include <boost/tokenizer.hpp>
 
 #include <unistd.h>
 #include "mpi.h"
 
 #define MASTER_PROCESS 0
 #define START_FOLDER_NUM 1
-#define END_FOLDER_NUM 13 
+#define END_FOLDER_NUM 13
 #define STOP_AT 5054
 #define DATA_FOLDERS_PATH_FORMAT "../location_001_dataset_%03d/"
-
+#define FILE_FORMAT "location_001_ivdata_%03d.txt"
 using namespace std;
 
 struct file_timestamps
@@ -93,7 +94,7 @@ float get_end_time(fstream &f)
     return atof(prv_line.c_str());
 }
 
-char *get_path(int num)
+char *get_datafolder(int num)
 {
     char *arr = new char[strlen(DATA_FOLDERS_PATH_FORMAT) + 1];
     sprintf(arr, DATA_FOLDERS_PATH_FORMAT, num);
@@ -105,14 +106,34 @@ int get_file_num(char *filename)
     return atoi(filename + 20);
 }
 
-char *get_full_path(char *dir, char *file)
+char *get_file_path(char *dir, char *file)
 {
     string path = string(dir) + string(file);
-    // cout<<type()
     char *p = new char[path.size() + 1];
     strcpy(p, path.c_str());
     p[path.size()] = '\0';
     return p;
+}
+
+char *get_file_path(int file_num){
+    int dataset_num;
+    char *x = new char[15];
+    strcpy(x,"Hello");
+    if(file_num<=4800)
+        dataset_num = (file_num-1)/400+1;
+    else if(file_num<=5230)
+        dataset_num = 13;
+    else if(file_num<=5630)
+        dataset_num = 14;
+    else if(file_num<=6030)
+        dataset_num = 15;
+    else
+        dataset_num = 16; 
+    char *file_name = new char[50], *dir= new char[100];
+    strcpy(dir,get_datafolder(dataset_num));
+    sprintf(file_name, FILE_FORMAT, file_num);
+    strcat(dir,file_name);    
+    return dir;
 }
 
 list<event> events_list_parser()
@@ -170,7 +191,7 @@ map<int, file_timestamps> create_start_end_log()
     map<int, file_timestamps> fse;
     for (int i = START_FOLDER_NUM; i <= END_FOLDER_NUM; i++)
     {
-        char *directory = get_path(i);
+        char *directory = get_datafolder(i);
         DIR *dir;
         struct dirent *ent;
         char *file_name;
@@ -183,14 +204,14 @@ map<int, file_timestamps> create_start_end_log()
                 int file_num = get_file_num(file_name);
                 if (!is_data_file(file_name) || file_num > STOP_AT)
                     continue;
-                file_name = get_full_path(directory, file_name);
+                file_name = get_file_path(directory, file_name);
                 fstream f(file_name, ios_base::in);
                 if (!f)
                 {
                     cout << file_name << " - Error" << endl;
                     continue;
                 }
-                float t_start=get_start_time(f), t_end=get_end_time(f);
+                float t_start = get_start_time(f), t_end = get_end_time(f);
                 file_timestamps temp_fse(t_start, t_end);
                 fse.insert(pair<int, file_timestamps>(file_num, temp_fse));
             }
@@ -223,11 +244,20 @@ void update_event_files(list<event> &eve, map<int, file_timestamps> fse)
     }
 }
 
+event* convert_list_to_array(list<event> e){
+    int number_of_events = sizeof(e)/sizeof(event);
+    event *eve_arr=new event[number_of_events];
+    list<event>::iterator itr=e.begin();
+    for(int i=0;i<number_of_events;i++)
+        eve_arr[i]=*itr;
+    return eve_arr;
+}
+
 int main(int argc, char **argv)
 {
     int rank, size;
-    list<event> event_list;
 
+    event *events;
     //start MPI
     MPI_Init(&argc, &argv);
     // get current process id
@@ -254,15 +284,17 @@ int main(int argc, char **argv)
         //Get the starting and ending times
         map<int, file_timestamps> file_start_end = create_start_end_log();
 
-
         event_list = events_list_parser();
 
+        list<event> event_list;
         update_event_files(event_list, file_start_end);
         print(event_list);
+        //Check this
+        event = convert_list_to_array(event_list);
     }
 
     //Wait for all the tasks to complete
-    MPI_Barrier(MPI_COMM_WORLD);
+    // MPI_Barrier(MPI_COMM_WORLD);
 
     // extract_events();
 
