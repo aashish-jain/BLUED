@@ -4,8 +4,10 @@
 
 #include <dirent.h>
 
+
 #include <string.h>
 #include <map>
+#include <vector>
 #include <iterator>
 #include <list>
 #include <boost/tokenizer.hpp>
@@ -13,13 +15,16 @@
 #include <unistd.h>
 #include "mpi.h"
 
+#define TAG 0
 #define MASTER_PROCESS 0
 #define START_FOLDER_NUM 1
 #define END_FOLDER_NUM 13
 #define STOP_AT 5054
 #define DATA_FOLDERS_PATH_FORMAT "../location_001_dataset_%03d/"
 #define FILE_FORMAT "location_001_ivdata_%03d.txt"
+
 using namespace std;
+using namespace boost;
 
 struct file_timestamps
 {
@@ -66,6 +71,7 @@ struct event
     }
     event()
     {
+
         file_num = -1;
     }
     void print()
@@ -234,11 +240,10 @@ map<int, file_timestamps> create_start_end_log()
         else
             perror("");
     }
-    // print(fse);
     return fse;
 }
 
-void update_event_files(list<event> &eve, map<int, file_timestamps> fse, int &number_of_events)
+void update_event_files(list<event> &eve, map<int, file_timestamps> fse, int &event_num)
 {
     list<event>::iterator event_itr = eve.begin();
     map<int, file_timestamps>::iterator fse_itr = fse.begin();
@@ -249,7 +254,7 @@ void update_event_files(list<event> &eve, map<int, file_timestamps> fse, int &nu
         if (temp_fse.start < event_itr->time_stamp && event_itr->time_stamp < temp_fse.end)
         {
             event_itr->file_num = fse_itr->first;
-            number_of_events++;
+            event_num++;
             // cout << "!";
             ++event_itr;
         }
@@ -259,19 +264,23 @@ void update_event_files(list<event> &eve, map<int, file_timestamps> fse, int &nu
     }
 }
 
-event *convert_list_to_array(list<event> e,int number_of_events)
+event *convert_list_to_array(list<event> e,int &event_num, int size)
 {
     list<event>::iterator itr = e.begin();
-    event *eve_arr = new event[number_of_events];
     itr=e.begin();
-    for (int i = 0; i < number_of_events; i++, ++itr)
+
+    event_num = event_num + ((event_num % size) ? size - event_num % size : 0);
+    event *eve_arr = new event[event_num];
+    int i;
+
+    for (i = 0; i < event_num && itr!=e.end(); i++, ++itr)
         eve_arr[i] = *itr;
+    while(i<event_num)
+        eve_arr[i]=event(0,'A',0.0,-1);
     return eve_arr;
 }
 
-
-
-event *assign_jobs(int rank, int size, int &nume)
+event *assign_jobs(event *e, int &event_num)
 {
     const int n_items = 4;
     int block_len[n_items] = {1, 1, 1, 1};
@@ -287,33 +296,25 @@ event *assign_jobs(int rank, int size, int &nume)
     MPI_Type_create_struct(4, block_len, offsets, types, &mpi_event);
     MPI_Type_commit(&mpi_event);
 
-    event *e;
-
-    //rounding off to have equal number of jobs so that everyone is assigned a job
-    if (rank == MASTER_PROCESS)
-    {
-        nume = nume + ((nume % size) ? size - nume % size : 0);
-        e = new event[nume];
-        for (int i = 0; i < nume; i++)
-            e[i].init(i * 10, 'A' + i, i * 100, i);
-    }
-
-    nume /= size;
-    event *recv = new event[nume];
-    MPI_Bcast(&nume, 1, MPI_INT, MASTER_PROCESS, MPI_COMM_WORLD);
-    // usleep(1000 * rank);
-
-    MPI_Scatter(e, nume, mpi_event, recv, nume, mpi_event, 0, MPI_COMM_WORLD);
-
+    MPI_Bcast(&event_num, 1, MPI_INT, MASTER_PROCESS, MPI_COMM_WORLD);
+    event *recv = new event[event_num];
+    MPI_Scatter(e, event_num, mpi_event, recv, event_num, mpi_event, TAG, MPI_COMM_WORLD);
     MPI_Type_free(&mpi_event);
+
+    // usleep(100000*rank);
+    // cout<<rank<<' '<<event_num<<endl;
+    // for(event *itr=recv;itr!=recv+5;++itr)
+    //     itr->print();
+
     return recv;
 }
+
 
 int main(int argc, char **argv)
 {
     int rank, size;
 
-    event *events;
+    // event *events;
     //start MPI
     MPI_Init(&argc, &argv);
     // get current process id
@@ -333,31 +334,39 @@ int main(int argc, char **argv)
 
     //parse event length from the cmdline argument
     float before_event_length = atof(argv[1]), after_event_length = atof(argv[2]);
-    int number_of_events;
+    int event_num=0;
+    event *events;
     if (rank == MASTER_PROCESS)
     {
-        cout << "Each event extracted will be of lenght " << after_event_length + before_event_length << " seconds\n";
+        cout << "Each event extracted will be of length " << after_event_length + before_event_length << " seconds\n";
 
-        //Get the starting and ending times
+        // Get the starting and ending times
         map<int, file_timestamps> file_start_end = create_start_end_log();
+        list<event> event_list = events_list_parser();
 
-        event_list = events_list_parser();
+        // Changes from here
+        update_event_files(event_list, file_start_end, event_num);
+        // print(event_list);
 
-        list<event> event_list;
+        //Adds dummy events to round off the jobs for easy access
+        events = convert_list_to_array(event_list, event_num, size);
 
-        //Changes from here
-        update_event_files(event_list, file_start_end, number_of_events);
-        print(event_list);
-        //Check this
-        events = convert_list_to_array(event_list);
-        for (int i = 0; i < 10; i++)
-            events[i].print();
+        //sanity-check
+        // for (int i = 0; i < event_num; i++)
+        //     {cout<<i<< ' '<<events[i].file_num<<' ';
+        //     events[i].print();}
+        cout<<event_num<<endl;
+        //To be distributed amongst other processes
+        event_num /= size;
     }
     //Changes below
-    event *recieved_jobs=assign_jobs(rank,size,number_of_events);
+    //Error here!!!!!
+
+    event *recieved=assign_jobs(events, event_num);
     usleep(100000*rank);
-    cout<<rank<<' '<<number_of_events<<endl;
-    for(event *itr=recieved;itr!=recieved+number_of_events;++itr)
+    cout<<rank<<' '<<event_num<<endl;
+
+    for(event *itr=recieved;itr!=recieved+5;++itr)
         itr->print();
 
     // extract_events();
@@ -367,5 +376,5 @@ int main(int argc, char **argv)
 
     //End process
     MPI_Finalize();
-    return 1;
+    return 0;
 }

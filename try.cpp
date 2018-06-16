@@ -13,7 +13,7 @@
 #define MASTER_PROCESS 0
 #define NUM_ELEMENTS 10
 
-#define tag 0
+#define TAG 0
 using namespace std;
 
 struct event
@@ -49,7 +49,8 @@ struct event
     }
 };
 
-event *assign_jobs(int rank, int size, int &nume)
+
+event *assign_jobs_working(int rank, int size, int &event_num)
 {
     const int n_items = 4;
     int block_len[n_items] = {1, 1, 1, 1};
@@ -70,19 +71,16 @@ event *assign_jobs(int rank, int size, int &nume)
     //rounding off to have equal number of jobs so that everyone is assigned a job
     if (rank == MASTER_PROCESS)
     {
-        nume = NUM_ELEMENTS + ((NUM_ELEMENTS % size) ? size - NUM_ELEMENTS % size : 0);
-        e = new event[nume];
-        for (int i = 0; i < nume; i++)
+        e = new event[event_num];
+        for (int i = 0; i < event_num; i++)
             e[i].init(i * 10, 'A' + i, i * 100, i);
+        event_num /= size;
     }
 
-    nume /= size;
-    event *recv = new event[nume];
-    MPI_Bcast(&nume, 1, MPI_INT, MASTER_PROCESS, MPI_COMM_WORLD);
-    usleep(1000 * rank);
+    MPI_Bcast(&event_num, 1, MPI_INT, MASTER_PROCESS, MPI_COMM_WORLD);
+    event *recv = new event[event_num];
 
-    MPI_Scatter(e, nume, mpi_event, recv, nume, mpi_event, 0, MPI_COMM_WORLD);
-
+    MPI_Scatter(e, event_num, mpi_event, recv, event_num, mpi_event, TAG, MPI_COMM_WORLD);
     MPI_Type_free(&mpi_event);
     return recv;
 }
@@ -99,7 +97,7 @@ event *convert_list_to_array(list<event> e,int number_of_events)
 
 int main(int argc, char **argv)
 {
-    int size, rank;
+    int size, rank, event_num;
 
     MPI_Init(&argc, &argv);
     MPI_Comm_size(MPI_COMM_WORLD, &size);
@@ -111,20 +109,18 @@ int main(int argc, char **argv)
         for (int i = 0; i < 10; i++)
             el.push_back(event(i * 10, 'A' + i, i * 100, i));
 
-        int num_events=10;
+        int num_events=el.size();
         event *e = convert_list_to_array(el, num_events);
 
         for (int i = 0; i < 10; i++)
             e[i].print();
+        event_num = NUM_ELEMENTS + ((NUM_ELEMENTS % size) ? size - NUM_ELEMENTS % size : 0);
     }
  
-    // int num_elements;
-    // event *recieved;
-    // recieved=assign_jobs(rank,size,num_elements);
+    event *recieved=assign_jobs_working(rank,size,event_num);
     // usleep(10000*rank);
-    // cout<<rank<<' '<<num_elements<<endl;
-
-    // for(event *itr=recieved;itr!=recieved+num_elements;++itr)
+    // cout<<rank<<' '<<event_num<<endl;
+    // for(event *itr=recieved;itr!=recieved+event_num;++itr)
     //     itr->print();
 
     MPI_Finalize();
