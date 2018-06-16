@@ -12,6 +12,7 @@
 #include <list>
 #include <boost/tokenizer.hpp>
 
+#include<omp.h>
 #include <unistd.h>
 #include "mpi.h"
 
@@ -318,15 +319,14 @@ vector<vector<float> > read_csv(string file_name)
     vector<string> vec;
     string line;
 
-    vector<vector<float> > res;
-
+    vector<vector<float> > result;
     if (!file)
     {
         cout << "File not found!"<<file_name<<endl;
-        return res;
+        return result;
     }
-    int header_count = 24;
 
+    int header_count = 24;
     while (getline(file, line))
     {
         if (header_count > 0)
@@ -340,16 +340,19 @@ vector<vector<float> > read_csv(string file_name)
         vector<float> temp;
         for (int i = 0; i < vec.size(); i++)
             temp.push_back(atof(vec[i].c_str()));
-        res.push_back(temp);
+        result.push_back(temp);
     }
     file.close();
-    return res;
+    return result;
 }
 
-void extract_events(event *events, int event_num, float bef_time, float aft_time)
+void inline extract_events(event *events, int event_num, float bef_time, float aft_time)
 {
+
     for (int i = 0; i <event_num; i++)
     {
+        if(events[i].file_num<0)
+            continue;
         // Getting path of the file
         string path(get_file_path(events[i].file_num));
         cout<<path<<endl;
@@ -385,30 +388,29 @@ void extract_events(event *events, int event_num, float bef_time, float aft_time
         int indx = (events[i].phase == 'A') ? 1 : 2;
 
         // Get that column alone
-        vector<int> res;
+        vector<int> result;
         for (int itr = 0; itr < data_events.size(); ++itr)
-            res.push_back(data_events[itr][indx]);
+            result.push_back(data_events[itr][indx]);
         
                 // Write to txt file
 
         char output_file_name[100];
         sprintf(output_file_name,"events/%d_%c_%f.txt",events[i].device,events[i].phase,events[i].time_stamp);
         fstream output_fp(output_file_name,ios_base::out);
-        for(int itr = 0; itr < res.size(); itr++)
+        for(int itr = 0; itr < result.size(); itr++)
         {
 			// For no comma in the last element
-            if (itr == res.size() - 1)
+            if (itr == result.size() - 1)
                 {
-                    output_fp << res[itr]; 
+                    output_fp << result[itr]; 
                     break;
                 }
-            if (itr < res.size())
-                output_fp << res[itr] <<",";
+            if (itr < result.size())
+                output_fp << result[itr] <<",";
         }    
         output_fp.close();
     }
 }
-
 
 int main(int argc, char **argv)
 {
@@ -463,17 +465,16 @@ int main(int argc, char **argv)
     //Error here!!!!!
 
     event *recieved=assign_jobs(events, event_num);
-    // usleep(100000*rank);
-    // cout<<rank<<' '<<event_num<<endl;
 
-    // for(event *itr=recieved;itr!=recieved+5;++itr)
+    cout<<"Rank = "<<rank<<" #Events = "<<event_num<<endl;
+
+    // for(event *itr=recieved;itr!=recieved+event_num;++itr)
     //     itr->print();
 
-    if(rank==MASTER_PROCESS)
-        extract_events(events+5, 3, before_event_length, after_event_length);
-
-    // if (rank == MASTER_PROCESS)
-    //     cout << "Done" << endl;
+    extract_events(recieved, event_num, before_event_length, after_event_length);
+   
+    if (rank == MASTER_PROCESS)
+        cout << "Done" << endl;
 
 
     //End process
