@@ -129,7 +129,6 @@ void extract(event *events, int event_num, float bef_time, float aft_time)
         vector<int> res;
         for (int itr = 0; itr < data_events.size(); ++itr)
             res.push_back(data_events[itr][indx]);
-
     }
 }
 

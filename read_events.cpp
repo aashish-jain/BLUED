@@ -310,6 +310,106 @@ event *assign_jobs(event *e, int &event_num)
 }
 
 
+vector<vector<float> > read_csv(string file_name)
+{
+    fstream file(file_name.c_str(), ios_base::in);
+
+    typedef tokenizer<escaped_list_separator<char> > Tokenizer;
+    vector<string> vec;
+    string line;
+
+    vector<vector<float> > res;
+
+    if (!file)
+    {
+        cout << "File not found!"<<file_name<<endl;
+        return res;
+    }
+    int header_count = 24;
+
+    while (getline(file, line))
+    {
+        if (header_count > 0)
+        {
+            --header_count;
+            continue;
+        }
+        Tokenizer tok(line);
+        vec.assign(tok.begin(), tok.end());
+
+        vector<float> temp;
+        for (int i = 0; i < vec.size(); i++)
+            temp.push_back(atof(vec[i].c_str()));
+        res.push_back(temp);
+    }
+    file.close();
+    return res;
+}
+
+void extract_events(event *events, int event_num, float bef_time, float aft_time)
+{
+    for (int i = 0; i <event_num; i++)
+    {
+        // Getting path of the file
+        string path(get_file_path(events[i].file_num));
+        cout<<path<<endl;
+ 
+        vector<vector<float> > data, temp;
+        data = read_csv(path);
+
+        // Missing data fix
+        if (data[0][0] > (events[i].time_stamp - bef_time))
+        {
+            string bef_path = get_file_path(events[i].file_num - 1);
+            temp = read_csv(bef_path);
+            for (int itr = 0; itr < data.size(); ++itr)
+                temp.push_back(data[itr]);
+            data = temp;
+        }
+    
+        else if (data[data[0].size()-1][0] < (events[i].time_stamp + aft_time))
+        {
+            string aft_path = get_file_path(events[i].file_num + 1);
+            temp = read_csv(aft_path);
+            for (int itr = 0; itr < temp.size(); ++itr)
+                data.push_back(temp[itr]);
+        }
+        // Finding event
+        vector<vector<float> > data_events;
+
+        for (int itr = 0; itr < data.size(); ++itr)
+            if ((data[itr][0] > (events[i].time_stamp - bef_time)) && (data[itr][0] < (events[i].time_stamp + aft_time)))
+                data_events.push_back(data[itr]);
+
+        // Index based on phase
+        int indx = (events[i].phase == 'A') ? 1 : 2;
+
+        // Get that column alone
+        vector<int> res;
+        for (int itr = 0; itr < data_events.size(); ++itr)
+            res.push_back(data_events[itr][indx]);
+        
+                // Write to txt file
+
+        char output_file_name[100];
+        sprintf(output_file_name,"events/%d_%c_%f.txt",events[i].device,events[i].phase,events[i].time_stamp);
+        fstream output_fp(output_file_name,ios_base::out);
+        for(int itr = 0; itr < res.size(); itr++)
+        {
+			// For no comma in the last element
+            if (itr == res.size() - 1)
+                {
+                    output_fp << res[itr]; 
+                    break;
+                }
+            if (itr < res.size())
+                output_fp << res[itr] <<",";
+        }    
+        output_fp.close();
+    }
+}
+
+
 int main(int argc, char **argv)
 {
     int rank, size;
@@ -355,7 +455,7 @@ int main(int argc, char **argv)
         // for (int i = 0; i < event_num; i++)
         //     {cout<<i<< ' '<<events[i].file_num<<' ';
         //     events[i].print();}
-        cout<<event_num<<endl;
+        // cout<<event_num<<endl;
         //To be distributed amongst other processes
         event_num /= size;
     }
@@ -363,16 +463,18 @@ int main(int argc, char **argv)
     //Error here!!!!!
 
     event *recieved=assign_jobs(events, event_num);
-    usleep(100000*rank);
-    cout<<rank<<' '<<event_num<<endl;
+    // usleep(100000*rank);
+    // cout<<rank<<' '<<event_num<<endl;
 
-    for(event *itr=recieved;itr!=recieved+5;++itr)
-        itr->print();
+    // for(event *itr=recieved;itr!=recieved+5;++itr)
+    //     itr->print();
 
-    // extract_events();
+    if(rank==MASTER_PROCESS)
+        extract_events(events+5, 3, before_event_length, after_event_length);
 
-    if (rank == MASTER_PROCESS)
-        cout << "Done" << endl;
+    // if (rank == MASTER_PROCESS)
+    //     cout << "Done" << endl;
+
 
     //End process
     MPI_Finalize();
