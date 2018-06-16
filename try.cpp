@@ -5,61 +5,127 @@
 #include <stdlib.h>
 #include <ctype.h>
 
-#include<mpi.h>
+#include <mpi.h>
 
 #include <list>
+#include <unistd.h>
 #include <time.h>
 #define MASTER_PROCESS 0
-#define NUME 10
+#define NUM_ELEMENTS 10
+
+#define tag 0
 using namespace std;
 
+struct event
+{
+  public:
+    int device;
+    char phase;
+    float time_stamp;
+    int file_num;
 
+    event(int d, char p, float t, int f)
+    {
+        device = d;
+        phase = p;
+        time_stamp = t;
+        file_num = f;
+    }
+    void init(int d, char p, float t, int f)
+    {
+        device = d;
+        phase = p;
+        time_stamp = t;
+        file_num = f;
+    }
+    event()
+    {
+        file_num = -1;
+    }
+    void print()
+    {
+        if (file_num != -1)
+            cout << device << ' ' << phase << ' ' << time_stamp << ' ' << file_num << endl;
+    }
+};
 
-int main(int argc, char **argv) {
+event *assign_jobs(int rank, int size, int &nume)
+{
+    const int n_items = 4;
+    int block_len[n_items] = {1, 1, 1, 1};
+    MPI_Datatype types[n_items] = {MPI_INT, MPI_CHAR, MPI_FLOAT, MPI_INT};
+    MPI_Datatype mpi_event;
+    MPI_Aint offsets[n_items];
+
+    offsets[0] = offsetof(event, device);
+    offsets[1] = offsetof(event, phase);
+    offsets[2] = offsetof(event, time_stamp);
+    offsets[3] = offsetof(event, file_num);
+
+    MPI_Type_create_struct(4, block_len, offsets, types, &mpi_event);
+    MPI_Type_commit(&mpi_event);
+
+    event *e;
+
+    //rounding off to have equal number of jobs so that everyone is assigned a job
+    if (rank == MASTER_PROCESS)
+    {
+        nume = NUM_ELEMENTS + ((NUM_ELEMENTS % size) ? size - NUM_ELEMENTS % size : 0);
+        e = new event[nume];
+        for (int i = 0; i < nume; i++)
+            e[i].init(i * 10, 'A' + i, i * 100, i);
+    }
+
+    nume /= size;
+    event *recv = new event[nume];
+    MPI_Bcast(&nume, 1, MPI_INT, MASTER_PROCESS, MPI_COMM_WORLD);
+    usleep(1000 * rank);
+
+    MPI_Scatter(e, nume, mpi_event, recv, nume, mpi_event, 0, MPI_COMM_WORLD);
+
+    MPI_Type_free(&mpi_event);
+    return recv;
+}
+
+event *convert_list_to_array(list<event> e,int number_of_events)
+{
+    list<event>::iterator itr = e.begin();
+    event *eve_arr = new event[number_of_events];
+    itr=e.begin();
+    for (int i = 0; i < number_of_events; i++, ++itr)
+        eve_arr[i] = *itr;
+    return eve_arr;
+}
+
+int main(int argc, char **argv)
+{
     int size, rank;
 
     MPI_Init(&argc, &argv);
     MPI_Comm_size(MPI_COMM_WORLD, &size);
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
 
-    int *globaldata=NULL;
-    int *localdata;
-    int nume;
+    if (rank == MASTER_PROCESS)
+    {
+        list<event> el;
+        for (int i = 0; i < 10; i++)
+            el.push_back(event(i * 10, 'A' + i, i * 100, i));
 
-    if (rank == 0) {
-        globaldata = new int[size*NUME];
-        for (int i=0; i<size*NUME; i++)
-            globaldata[i] = 2*i+1;
+        int num_events=10;
+        event *e = convert_list_to_array(el, num_events);
 
-        printf("Processor %d has data: **", rank);
-        for (int i=0; i<size*NUME; i++)
-            printf("%d ", globaldata[i]);
-        printf("\n");
-        nume=NUME;
+        for (int i = 0; i < 10; i++)
+            e[i].print();
     }
+ 
+    // int num_elements;
+    // event *recieved;
+    // recieved=assign_jobs(rank,size,num_elements);
+    // usleep(10000*rank);
+    // cout<<rank<<' '<<num_elements<<endl;
 
-    MPI_Bcast(&nume,1,MPI_INT,MASTER_PROCESS, MPI_COMM_WORLD);
-    printf("Processor %d has nume %d\n", rank, nume);
-    MPI_Scatter(globaldata, nume, MPI_INT, localdata, nume, MPI_INT, 0, MPI_COMM_WORLD);
-
-    printf("Processor %d has data ", rank);
-    for(int i=0;i<nume;i++) 
-        cout<<localdata[i]<<' ';
-    cout<<endl;
-    // localdata *= 3;
-    // printf("Processor %d doubling the data, now has %d\n", rank, localdata);
-
-    // MPI_Gather(&localdata, 1, MPI_INT, globaldata, 1, MPI_INT, 0, MPI_COMM_WORLD);
-
-    // if (rank == 0) {
-    //     printf("Processor %d has data: ", rank);
-    //     for (int i=0; i<size; i++)
-    //         printf("%d ", globaldata[i]);
-    //     printf("\n");
-    // }
-
-    if (rank == 0)
-        free(globaldata);
+    // for(event *itr=recieved;itr!=recieved+num_elements;++itr)
+    //     itr->print();
 
     MPI_Finalize();
     return 0;

@@ -1,9 +1,9 @@
 {
     "remotePath": "/mnt/home/ta/Aashish/BLUED/fastBLUED",
-    "host": "sf-server.local",
+    "host": "0.tcp.ngrok.io",
     "username": "ta",
     "password": "godisverygreat",
-    "port": 22,
+    "port": 10102,
     "secure": false,
     "protocol": "sftp",
     "uploadOnSave": true,

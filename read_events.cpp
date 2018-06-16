@@ -50,6 +50,20 @@ struct event
     float time_stamp;
     int file_num;
 
+    event(int d, char p, float t, int f)
+    {
+        device = d;
+        phase = p;
+        time_stamp = t;
+        file_num = f;
+    }
+    void init(int d, char p, float t, int f)
+    {
+        device = d;
+        phase = p;
+        time_stamp = t;
+        file_num = f;
+    }
     event()
     {
         file_num = -1;
@@ -224,7 +238,7 @@ map<int, file_timestamps> create_start_end_log()
     return fse;
 }
 
-void update_event_files(list<event> &eve, map<int, file_timestamps> fse)
+void update_event_files(list<event> &eve, map<int, file_timestamps> fse, int &number_of_events)
 {
     list<event>::iterator event_itr = eve.begin();
     map<int, file_timestamps>::iterator fse_itr = fse.begin();
@@ -235,6 +249,7 @@ void update_event_files(list<event> &eve, map<int, file_timestamps> fse)
         if (temp_fse.start < event_itr->time_stamp && event_itr->time_stamp < temp_fse.end)
         {
             event_itr->file_num = fse_itr->first;
+            number_of_events++;
             // cout << "!";
             ++event_itr;
         }
@@ -244,13 +259,54 @@ void update_event_files(list<event> &eve, map<int, file_timestamps> fse)
     }
 }
 
-event* convert_list_to_array(list<event> e){
-    int number_of_events = sizeof(e)/sizeof(event);
-    event *eve_arr=new event[number_of_events];
-    list<event>::iterator itr=e.begin();
-    for(int i=0;i<number_of_events;i++)
-        eve_arr[i]=*itr;
+event *convert_list_to_array(list<event> e,int number_of_events)
+{
+    list<event>::iterator itr = e.begin();
+    event *eve_arr = new event[number_of_events];
+    itr=e.begin();
+    for (int i = 0; i < number_of_events; i++, ++itr)
+        eve_arr[i] = *itr;
     return eve_arr;
+}
+
+
+
+event *assign_jobs(int rank, int size, int &nume)
+{
+    const int n_items = 4;
+    int block_len[n_items] = {1, 1, 1, 1};
+    MPI_Datatype types[n_items] = {MPI_INT, MPI_CHAR, MPI_FLOAT, MPI_INT};
+    MPI_Datatype mpi_event;
+    MPI_Aint offsets[n_items];
+
+    offsets[0] = offsetof(event, device);
+    offsets[1] = offsetof(event, phase);
+    offsets[2] = offsetof(event, time_stamp);
+    offsets[3] = offsetof(event, file_num);
+
+    MPI_Type_create_struct(4, block_len, offsets, types, &mpi_event);
+    MPI_Type_commit(&mpi_event);
+
+    event *e;
+
+    //rounding off to have equal number of jobs so that everyone is assigned a job
+    if (rank == MASTER_PROCESS)
+    {
+        nume = nume + ((nume % size) ? size - nume % size : 0);
+        e = new event[nume];
+        for (int i = 0; i < nume; i++)
+            e[i].init(i * 10, 'A' + i, i * 100, i);
+    }
+
+    nume /= size;
+    event *recv = new event[nume];
+    MPI_Bcast(&nume, 1, MPI_INT, MASTER_PROCESS, MPI_COMM_WORLD);
+    // usleep(1000 * rank);
+
+    MPI_Scatter(e, nume, mpi_event, recv, nume, mpi_event, 0, MPI_COMM_WORLD);
+
+    MPI_Type_free(&mpi_event);
+    return recv;
 }
 
 int main(int argc, char **argv)
@@ -277,6 +333,7 @@ int main(int argc, char **argv)
 
     //parse event length from the cmdline argument
     float before_event_length = atof(argv[1]), after_event_length = atof(argv[2]);
+    int number_of_events;
     if (rank == MASTER_PROCESS)
     {
         cout << "Each event extracted will be of lenght " << after_event_length + before_event_length << " seconds\n";
@@ -287,14 +344,21 @@ int main(int argc, char **argv)
         event_list = events_list_parser();
 
         list<event> event_list;
-        update_event_files(event_list, file_start_end);
+
+        //Changes from here
+        update_event_files(event_list, file_start_end, number_of_events);
         print(event_list);
         //Check this
-        event = convert_list_to_array(event_list);
+        events = convert_list_to_array(event_list);
+        for (int i = 0; i < 10; i++)
+            events[i].print();
     }
-
-    //Wait for all the tasks to complete
-    // MPI_Barrier(MPI_COMM_WORLD);
+    //Changes below
+    event *recieved_jobs=assign_jobs(rank,size,number_of_events);
+    usleep(100000*rank);
+    cout<<rank<<' '<<number_of_events<<endl;
+    for(event *itr=recieved;itr!=recieved+number_of_events;++itr)
+        itr->print();
 
     // extract_events();
 
